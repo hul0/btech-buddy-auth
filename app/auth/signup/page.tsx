@@ -24,44 +24,94 @@ export default function SignupPage() {
   const redirectUrl = searchParams.get("redirect_url")
   const appScheme = searchParams.get("app_scheme")
 
+  console.log("[v0] Signup page loaded with params:", {
+    redirectUrl,
+    appScheme,
+    allParams: Object.fromEntries(searchParams.entries()),
+  })
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
+    console.log("[v0] Starting signup process for email:", email)
+    console.log("[v0] Mobile app parameters:", { appScheme, redirectUrl })
+
     if (password !== confirmPassword) {
+      console.log("[v0] Password mismatch error")
       setError("Passwords do not match")
       setIsLoading(false)
       return
     }
 
     if (password.length < 6) {
+      console.log("[v0] Password too short error")
       setError("Password must be at least 6 characters long")
       setIsLoading(false)
       return
     }
 
     try {
+      const emailRedirectTo =
+        process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
+        `${window.location.origin}/auth/callback${appScheme ? `?app_scheme=${appScheme}&redirect_url=${redirectUrl}` : ""}`
+
+      console.log("[v0] Email redirect URL:", emailRedirectTo)
+      console.log("[v0] Calling Supabase signUp...")
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo:
-            process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
-            `${window.location.origin}/auth/callback${appScheme ? `?app_scheme=${appScheme}&redirect_url=${redirectUrl}` : ""}`,
+          emailRedirectTo,
         },
       })
 
-      if (error) throw error
+      if (error) {
+        console.error("[v0] Supabase signup error:", error)
+        throw error
+      }
 
-      // For signup, we typically need email confirmation
-      // So we redirect to a success page instead of immediately to the app
-      router.push(`/auth/signup-success${appScheme ? `?app_scheme=${appScheme}&redirect_url=${redirectUrl}` : ""}`)
+      console.log("[v0] Signup successful! Response data:", {
+        hasUser: !!data.user,
+        hasSession: !!data.session,
+        userId: data.user?.id,
+        userEmail: data.user?.email,
+        needsConfirmation: !data.session,
+      })
+
+      if (data.session && appScheme && redirectUrl) {
+        // User is immediately signed in (email confirmation disabled)
+        const token = data.session.access_token
+        const refreshToken = data.session.refresh_token
+
+        console.log("[v0] User immediately signed in - preparing mobile redirect")
+        console.log("[v0] Access token length:", token?.length || 0)
+        console.log("[v0] Refresh token length:", refreshToken?.length || 0)
+
+        const mobileRedirectUrl = `${appScheme}://callback#access_token=${token}&refresh_token=${refreshToken}`
+
+        console.log("[v0] Mobile redirect URL constructed:", mobileRedirectUrl)
+        console.log("[v0] Triggering automatic redirect to mobile app...")
+
+        setTimeout(() => {
+          console.log("[v0] Executing window.location.href redirect now...")
+          window.location.href = mobileRedirectUrl
+        }, 100)
+      } else {
+        // For signup, we typically need email confirmation
+        // So we redirect to a success page instead of immediately to the app
+        console.log("[v0] Redirecting to signup success page (email confirmation required)")
+        router.push(`/auth/signup-success${appScheme ? `?app_scheme=${appScheme}&redirect_url=${redirectUrl}` : ""}`)
+      }
     } catch (error: unknown) {
+      console.error("[v0] Signup error occurred:", error)
       setError(error instanceof Error ? error.message : "An error occurred")
     } finally {
       setIsLoading(false)
+      console.log("[v0] Signup process completed")
     }
   }
 
